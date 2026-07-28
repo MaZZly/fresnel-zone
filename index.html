@@ -361,6 +361,7 @@
 
     const SPEED_OF_LIGHT = 299792458;
     const EARTH_RADIUS_M = 6371008.8;
+    const STORAGE_KEY = "ptp-fresnel-planner-points";
 
     const map = L.map("map", {
         zoomControl: true,
@@ -492,6 +493,53 @@
         });
     }
 
+    function savePoints() {
+        const data = {};
+
+        for (const pointName of ["A", "B"]) {
+            const point = state.points[pointName];
+            if (point) {
+                data[pointName] = {
+                    lat: point.lat,
+                    lng: point.lng
+                };
+            }
+        }
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    }
+
+    function loadPoints() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+
+            const data = JSON.parse(raw);
+
+            for (const pointName of ["A", "B"]) {
+                const point = data?.[pointName];
+
+                if (
+                    point &&
+                    Number.isFinite(point.lat) &&
+                    Number.isFinite(point.lng)
+                ) {
+                    setPoint(pointName, L.latLng(point.lat, point.lng), false);
+                }
+            }
+
+            if (state.points.A && state.points.B) {
+                clearActivePoint();
+                fitLink();
+            } else if (state.points.A) {
+                setActivePoint("B");
+            }
+        } catch (error) {
+            console.warn("Could not restore saved points", error);
+            localStorage.removeItem(STORAGE_KEY);
+        }
+    }
+
     function setActivePoint(pointName) {
         state.activePoint = pointName;
         elements.setA.classList.toggle("active", pointName === "A");
@@ -506,7 +554,7 @@
         elements.setB.classList.remove("active", "primary");
     }
 
-    function setPoint(pointName, latLng) {
+    function setPoint(pointName, latLng, persist = true) {
         const point = L.latLng(latLng.lat, latLng.lng);
         state.points[pointName] = point;
 
@@ -520,12 +568,17 @@
             state.markers[pointName].on("drag", event => {
                 state.points[pointName] = event.target.getLatLng();
                 updateLink();
+                savePoints();
             });
         } else {
             state.markers[pointName].setLatLng(point);
         }
 
         updateLink();
+
+        if (persist) {
+            savePoints();
+        }
 
         if (pointName === "A" && !state.points.B) {
             setActivePoint("B");
@@ -639,7 +692,7 @@
     }
 
     function updateGps(position) {
-        const {latitude, longitude, accuracy, altitude, speed, heading} = position.coords;
+        const {latitude, longitude, accuracy, altitude, heading} = position.coords;
         const latLng = L.latLng(latitude, longitude);
 
         state.currentPosition = latLng;
@@ -679,8 +732,6 @@
         ];
 
         if (Number.isFinite(altitude)) details.push(`alt ${Math.round(altitude)} m`);
-        if (Number.isFinite(speed)) details.push(`${(speed * 3.6).toFixed(1)} km/h`);
-        if (Number.isFinite(heading)) details.push(`heading ${Math.round(heading)}°`);
 
         elements.gpsStatus.classList.remove("error");
         elements.gpsStatus.textContent = details.join(" · ");
@@ -749,12 +800,15 @@
 
         removeLayer("linkLine");
         removeLayer("fresnelPolygon");
+        localStorage.removeItem(STORAGE_KEY);
         setActivePoint("A");
         updateLink();
     });
 
     elements.frequency.addEventListener("input", updateLink);
     elements.samples.addEventListener("input", updateLink);
+
+    loadPoints();
 
     if ("geolocation" in navigator) {
         navigator.geolocation.watchPosition(updateGps, handleGpsError, {
