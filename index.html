@@ -174,6 +174,60 @@
             font-size: 0.78rem;
         }
 
+        .frequency-control {
+            margin-top: 6px;
+        }
+
+        .frequency-label {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 0.75rem;
+        }
+
+        .frequency-buttons {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 4px;
+        }
+
+        .frequency-button {
+            min-width: 0;
+            padding-inline: 3px;
+        }
+
+        .frequency-button.selected {
+            border-color: var(--accent);
+            background: var(--accent);
+            color: white;
+        }
+
+        .custom-frequency {
+            display: none;
+            grid-template-columns: 1fr 74px;
+            align-items: center;
+            gap: 6px;
+            margin-top: 5px;
+        }
+
+        .custom-frequency.visible {
+            display: grid;
+        }
+
+        .custom-frequency label {
+            font-size: 0.75rem;
+        }
+
+        .custom-frequency input {
+            width: 100%;
+            min-width: 0;
+            padding: 5px 6px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            background: white;
+            color: var(--text);
+            font-size: 0.78rem;
+        }
+
         .stats {
             display: grid;
             grid-template-columns: 1fr auto;
@@ -328,15 +382,20 @@
             <button id="clear" type="button">Clear</button>
         </div>
 
-        <div class="settings-row">
-            <div class="field">
-                <label for="frequency">Frequency GHz</label>
-                <input id="frequency" type="number" min="0.1" max="100" step="0.1" value="2.4"/>
+        <div class="frequency-control">
+            <span class="frequency-label">Frequency</span>
+            <div class="frequency-buttons" role="group" aria-label="Frequency in GHz">
+                <button class="frequency-button selected" type="button" data-frequency="2.4">2.4</button>
+                <button class="frequency-button" type="button" data-frequency="5">5</button>
+                <button class="frequency-button" type="button" data-frequency="6">6</button>
+                <button class="frequency-button" type="button" data-frequency="24">24</button>
+                <button class="frequency-button" type="button" data-frequency="60">60</button>
+                <button id="custom-frequency-button" class="frequency-button" type="button">Other</button>
             </div>
-
-            <div class="field">
-                <label for="samples">Smoothness</label>
-                <input id="samples" type="number" min="16" max="300" step="8" value="96"/>
+            <div id="custom-frequency-row" class="custom-frequency">
+                <label for="custom-frequency">Custom GHz</label>
+                <input id="custom-frequency" type="number" min="0.1" max="300" step="0.1" value="10"
+                       inputmode="decimal"/>
             </div>
         </div>
 
@@ -380,8 +439,10 @@
         useLocationB: document.getElementById("use-location-b"),
         fitLink: document.getElementById("fit-link"),
         clear: document.getElementById("clear"),
-        frequency: document.getElementById("frequency"),
-        samples: document.getElementById("samples"),
+        frequencyButtons: [...document.querySelectorAll("[data-frequency]")],
+        customFrequencyButton: document.getElementById("custom-frequency-button"),
+        customFrequencyRow: document.getElementById("custom-frequency-row"),
+        customFrequency: document.getElementById("custom-frequency"),
         distance: document.getElementById("distance"),
         maxRadius: document.getElementById("max-radius"),
         clearanceRadius: document.getElementById("clearance-radius"),
@@ -402,7 +463,8 @@
         accuracyCircle: null,
         linkLine: null,
         fresnelPolygon: null,
-        hasCenteredOnGps: false
+        hasCenteredOnGps: false,
+        frequencyGHz: 2.4
     };
 
     function toRadians(degrees) {
@@ -623,9 +685,9 @@
         }
 
         const distanceM = haversineDistance(a, b);
-        const frequencyGHz = Number(elements.frequency.value);
+        const frequencyGHz = state.frequencyGHz;
         const frequencyHz = frequencyGHz * 1e9;
-        const sampleCount = Math.max(16, Math.min(300, Number(elements.samples.value) || 96));
+        const sampleCount = 128;
 
         if (!Number.isFinite(frequencyHz) || frequencyHz <= 0 || distanceM <= 0) {
             removeLayer("fresnelPolygon");
@@ -680,7 +742,7 @@
         elements.maxRadius.textContent = formatRadius(maxRadius);
         elements.clearanceRadius.textContent = formatRadius(maxRadius * 0.6);
         elements.compactSummary.textContent =
-            `${formatDistance(distanceM)} · Fresnel ${formatRadius(maxRadius)}`;
+            `${formatDistance(distanceM)} · ${Number.isInteger(frequencyGHz) ? frequencyGHz : frequencyGHz.toFixed(1)} GHz · Fresnel ${formatRadius(maxRadius)}`;
     }
 
     function fitLink() {
@@ -692,7 +754,7 @@
     }
 
     function updateGps(position) {
-        const {latitude, longitude, accuracy, altitude, heading} = position.coords;
+        const {latitude, longitude, accuracy, altitude} = position.coords;
         const latLng = L.latLng(latitude, longitude);
 
         state.currentPosition = latLng;
@@ -805,8 +867,43 @@
         updateLink();
     });
 
-    elements.frequency.addEventListener("input", updateLink);
-    elements.samples.addEventListener("input", updateLink);
+    function selectFrequency(frequencyGHz, selectedButton = null) {
+        state.frequencyGHz = frequencyGHz;
+
+        for (const button of [...elements.frequencyButtons, elements.customFrequencyButton]) {
+            button.classList.toggle("selected", button === selectedButton);
+        }
+
+        elements.customFrequencyRow.classList.toggle(
+            "visible",
+            selectedButton === elements.customFrequencyButton
+        );
+
+        updateLink();
+    }
+
+    for (const button of elements.frequencyButtons) {
+        button.addEventListener("click", () => {
+            selectFrequency(Number(button.dataset.frequency), button);
+        });
+    }
+
+    elements.customFrequencyButton.addEventListener("click", () => {
+        const value = Number(elements.customFrequency.value);
+        selectFrequency(
+            Number.isFinite(value) && value > 0 ? value : 10,
+            elements.customFrequencyButton
+        );
+        elements.customFrequency.focus();
+    });
+
+    elements.customFrequency.addEventListener("input", () => {
+        const value = Number(elements.customFrequency.value);
+        if (Number.isFinite(value) && value > 0) {
+            state.frequencyGHz = value;
+            updateLink();
+        }
+    });
 
     loadPoints();
 
