@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <title>PTP Fresnel Zone Planner</title>
+
+    <link
+            rel="stylesheet"
+            href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+            crossorigin=""
+    />
+
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --panel-bg: rgba(255, 255, 255, 0.94);
+            --text: #17202a;
+            --muted: #5f6b76;
+            --border: #d9dee3;
+            --accent: #1769aa;
+            --danger: #b42318;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            background: #e8edf2;
+            color: var(--text);
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .panel {
+            position: absolute;
+            z-index: 1000;
+            top: 12px;
+            left: 12px;
+            width: min(360px, calc(100% - 24px));
+            max-height: calc(100% - 24px);
+            overflow: auto;
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: var(--panel-bg);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.14);
+            backdrop-filter: blur(8px);
+        }
+
+        h1 {
+            margin: 0 0 4px;
+            font-size: 1.15rem;
+        }
+
+        .hint {
+            margin: 0 0 12px;
+            color: var(--muted);
+            font-size: 0.86rem;
+            line-height: 1.35;
+        }
+
+        .buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        button, input {
+            font: inherit;
+        }
+
+        button {
+            min-height: 42px;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: white;
+            color: var(--text);
+            cursor: pointer;
+        }
+
+        button.primary {
+            border-color: var(--accent);
+            background: var(--accent);
+            color: white;
+        }
+
+        button.active {
+            outline: 3px solid rgba(23, 105, 170, 0.24);
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
+        .field {
+            display: grid;
+            grid-template-columns: 1fr 95px;
+            align-items: center;
+            gap: 10px;
+            margin: 8px 0;
+        }
+
+        .field label {
+            font-size: 0.9rem;
+        }
+
+        .field input {
+            width: 100%;
+            padding: 7px 8px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: white;
+            color: var(--text);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 6px 12px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+
+        .stats .value {
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            text-align: right;
+        }
+
+        .gps-status {
+            position: absolute;
+            z-index: 1000;
+            right: 10px;
+            bottom: 24px;
+            max-width: calc(100% - 20px);
+            padding: 6px 9px;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: var(--panel-bg);
+            color: var(--text);
+            box-shadow: 0 3px 14px rgba(0, 0, 0, 0.14);
+            font-size: 0.75rem;
+            font-variant-numeric: tabular-nums;
+            backdrop-filter: blur(8px);
+        }
+
+        .error {
+            color: var(--danger);
+        }
+
+        .marker-label {
+            display: grid;
+            place-items: center;
+            width: 26px;
+            height: 26px;
+            border: 2px solid white;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            font-weight: 700;
+            box-shadow: 0 2px 7px rgba(0, 0, 0, .4);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --panel-bg: rgba(27, 31, 36, 0.94);
+                --text: #f1f4f7;
+                --muted: #aeb7c0;
+                --border: #46505a;
+                --accent: #4ba3e3;
+            }
+
+            body {
+                background: #161a1e;
+            }
+
+            button, .field input {
+                background: #252b31;
+                color: var(--text);
+            }
+        }
+
+        @media (max-width: 600px) {
+            .panel {
+                top: 8px;
+                left: 8px;
+                width: calc(100% - 16px);
+                padding: 11px;
+            }
+
+            .hint {
+                margin-bottom: 8px;
+            }
+
+            .field {
+                margin: 5px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="map" aria-label="Point-to-point link map"></div>
+
+<section class="panel">
+    <h1>PTP Fresnel Zone Planner</h1>
+    <p class="hint">
+        Choose Point A or Point B, then tap the map. Markers can also be dragged.
+        The shaded area is the top-down first Fresnel-zone footprint.
+    </p>
+
+    <div class="buttons">
+        <button id="set-a" class="primary active" type="button">Set Point A</button>
+        <button id="set-b" type="button">Set Point B</button>
+        <button id="use-location-a" type="button" disabled>GPS → A</button>
+        <button id="use-location-b" type="button" disabled>GPS → B</button>
+        <button id="fit-link" type="button" disabled>Fit link</button>
+        <button id="clear" type="button">Clear points</button>
+    </div>
+
+    <div class="field">
+        <label for="frequency">Frequency (GHz)</label>
+        <input id="frequency" type="number" min="0.1" max="100" step="0.1" value="2.4"/>
+    </div>
+
+    <div class="field">
+        <label for="samples">Zone smoothness</label>
+        <input id="samples" type="number" min="16" max="300" step="8" value="96"/>
+    </div>
+
+    <div class="stats" aria-live="polite">
+        <span>Distance</span><span id="distance" class="value">—</span>
+        <span>Max Fresnel radius</span><span id="max-radius" class="value">—</span>
+        <span>60% clearance radius</span><span id="clearance-radius" class="value">—</span>
+        <span>Point A</span><span id="point-a-value" class="value">—</span>
+        <span>Point B</span><span id="point-b-value" class="value">—</span>
+    </div>
+</section>
+
+<div id="gps-status" class="gps-status" aria-live="polite">
+    GPS: requesting location…
+</div>
+
+<script
+        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        crossorigin="">
+</script>
+
+<script>
+    "use strict";
+
+    const SPEED_OF_LIGHT = 299792458;
+    const EARTH_RADIUS_M = 6371008.8;
+
+    const map = L.map("map", {
+        zoomControl: true,
+        preferCanvas: true
+    }).setView([63.095, 21.616], 12);
+
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 20,
+        attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    const elements = {
+        setA: document.getElementById("set-a"),
+        setB: document.getElementById("set-b"),
+        useLocationA: document.getElementById("use-location-a"),
+        useLocationB: document.getElementById("use-location-b"),
+        fitLink: document.getElementById("fit-link"),
+        clear: document.getElementById("clear"),
+        frequency: document.getElementById("frequency"),
+        samples: document.getElementById("samples"),
+        distance: document.getElementById("distance"),
+        maxRadius: document.getElementById("max-radius"),
+        clearanceRadius: document.getElementById("clearance-radius"),
+        pointA: document.getElementById("point-a-value"),
+        pointB: document.getElementById("point-b-value"),
+        gpsStatus: document.getElementById("gps-status")
+    };
+
+    const state = {
+        activePoint: "A",
+        points: {A: null, B: null},
+        markers: {A: null, B: null},
+        currentPosition: null,
+        currentLocationMarker: null,
+        accuracyCircle: null,
+        linkLine: null,
+        fresnelPolygon: null,
+        hasCenteredOnGps: false
+    };
+
+    function toRadians(degrees) {
+        return degrees * Math.PI / 180;
+    }
+
+    function toDegrees(radians) {
+        return radians * 180 / Math.PI;
+    }
+
+    function haversineDistance(a, b) {
+        const lat1 = toRadians(a.lat);
+        const lat2 = toRadians(b.lat);
+        const dLat = lat2 - lat1;
+        const dLon = toRadians(b.lng - a.lng);
+
+        const h =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+
+        return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(h));
+    }
+
+    function initialBearing(a, b) {
+        const lat1 = toRadians(a.lat);
+        const lat2 = toRadians(b.lat);
+        const dLon = toRadians(b.lng - a.lng);
+
+        const y = Math.sin(dLon) * Math.cos(lat2);
+        const x =
+            Math.cos(lat1) * Math.sin(lat2) -
+            Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+
+        return (toDegrees(Math.atan2(y, x)) + 360) % 360;
+    }
+
+    function destinationPoint(start, distanceM, bearingDeg) {
+        const angularDistance = distanceM / EARTH_RADIUS_M;
+        const bearing = toRadians(bearingDeg);
+        const lat1 = toRadians(start.lat);
+        const lon1 = toRadians(start.lng);
+
+        const lat2 = Math.asin(
+            Math.sin(lat1) * Math.cos(angularDistance) +
+            Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing)
+        );
+
+        const lon2 = lon1 + Math.atan2(
+            Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
+            Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2)
+        );
+
+        return L.latLng(toDegrees(lat2), ((toDegrees(lon2) + 540) % 360) - 180);
+    }
+
+    function interpolateGreatCircle(a, b, fraction) {
+        const distance = haversineDistance(a, b);
+        if (distance === 0) return L.latLng(a.lat, a.lng);
+        return destinationPoint(a, distance * fraction, initialBearing(a, b));
+    }
+
+    function fresnelRadius(d1M, d2M, frequencyHz) {
+        const wavelengthM = SPEED_OF_LIGHT / frequencyHz;
+        return Math.sqrt(wavelengthM * d1M * d2M / (d1M + d2M));
+    }
+
+    function formatDistance(meters) {
+        if (!Number.isFinite(meters)) return "—";
+        if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
+        return `${meters.toFixed(0)} m`;
+    }
+
+    function formatRadius(meters) {
+        if (!Number.isFinite(meters)) return "—";
+        return `${meters.toFixed(2)} m`;
+    }
+
+    function formatCoordinate(point) {
+        return point ? `${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}` : "—";
+    }
+
+    function markerIcon(label) {
+        return L.divIcon({
+            className: "",
+            html: `<div class="marker-label">${label}</div>`,
+            iconSize: [26, 26],
+            iconAnchor: [13, 13]
+        });
+    }
+
+    function setActivePoint(pointName) {
+        state.activePoint = pointName;
+        elements.setA.classList.toggle("active", pointName === "A");
+        elements.setB.classList.toggle("active", pointName === "B");
+        elements.setA.classList.toggle("primary", pointName === "A");
+        elements.setB.classList.toggle("primary", pointName === "B");
+    }
+
+    function setPoint(pointName, latLng) {
+        const point = L.latLng(latLng.lat, latLng.lng);
+        state.points[pointName] = point;
+
+        if (!state.markers[pointName]) {
+            state.markers[pointName] = L.marker(point, {
+                draggable: true,
+                icon: markerIcon(pointName),
+                title: `Point ${pointName}`
+            }).addTo(map);
+
+            state.markers[pointName].on("drag", event => {
+                state.points[pointName] = event.target.getLatLng();
+                updateLink();
+            });
+        } else {
+            state.markers[pointName].setLatLng(point);
+        }
+
+        updateLink();
+
+        if (pointName === "A" && !state.points.B) {
+            setActivePoint("B");
+        }
+    }
+
+    function removeLayer(layerName) {
+        if (state[layerName]) {
+            map.removeLayer(state[layerName]);
+            state[layerName] = null;
+        }
+    }
+
+    function updateLink() {
+        const a = state.points.A;
+        const b = state.points.B;
+
+        elements.pointA.textContent = formatCoordinate(a);
+        elements.pointB.textContent = formatCoordinate(b);
+
+        const bothPointsSet = Boolean(a && b);
+        elements.fitLink.disabled = !bothPointsSet;
+
+        if (!bothPointsSet) {
+            removeLayer("linkLine");
+            removeLayer("fresnelPolygon");
+            elements.distance.textContent = "—";
+            elements.maxRadius.textContent = "—";
+            elements.clearanceRadius.textContent = "—";
+            return;
+        }
+
+        const distanceM = haversineDistance(a, b);
+        const frequencyGHz = Number(elements.frequency.value);
+        const frequencyHz = frequencyGHz * 1e9;
+        const sampleCount = Math.max(16, Math.min(300, Number(elements.samples.value) || 96));
+
+        if (!Number.isFinite(frequencyHz) || frequencyHz <= 0 || distanceM <= 0) {
+            removeLayer("fresnelPolygon");
+            return;
+        }
+
+        if (!state.linkLine) {
+            state.linkLine = L.polyline([a, b], {
+                color: "#1769aa",
+                weight: 3,
+                opacity: 0.9
+            }).addTo(map);
+        } else {
+            state.linkLine.setLatLngs([a, b]);
+        }
+
+        const bearing = initialBearing(a, b);
+        const leftSide = [];
+        const rightSide = [];
+
+        for (let i = 0; i <= sampleCount; i += 1) {
+            const fraction = i / sampleCount;
+            const center = interpolateGreatCircle(a, b, fraction);
+            const d1 = distanceM * fraction;
+            const d2 = distanceM - d1;
+            const radius = (i === 0 || i === sampleCount)
+                ? 0
+                : fresnelRadius(d1, d2, frequencyHz);
+
+            leftSide.push(destinationPoint(center, radius, bearing - 90));
+            rightSide.push(destinationPoint(center, radius, bearing + 90));
+        }
+
+        const polygonPoints = [...leftSide, ...rightSide.reverse()];
+
+        if (!state.fresnelPolygon) {
+            state.fresnelPolygon = L.polygon(polygonPoints, {
+                color: "#1769aa",
+                weight: 2,
+                opacity: 0.8,
+                fillColor: "#2f91d1",
+                fillOpacity: 0.22,
+                interactive: false
+            }).addTo(map);
+        } else {
+            state.fresnelPolygon.setLatLngs(polygonPoints);
+        }
+
+        const maxRadius = fresnelRadius(distanceM / 2, distanceM / 2, frequencyHz);
+
+        elements.distance.textContent = formatDistance(distanceM);
+        elements.maxRadius.textContent = formatRadius(maxRadius);
+        elements.clearanceRadius.textContent = formatRadius(maxRadius * 0.6);
+    }
+
+    function fitLink() {
+        if (!state.points.A || !state.points.B) return;
+        map.fitBounds(L.latLngBounds([state.points.A, state.points.B]), {
+            padding: [50, 50],
+            maxZoom: 18
+        });
+    }
+
+    function updateGps(position) {
+        const {latitude, longitude, accuracy, altitude, speed, heading} = position.coords;
+        const latLng = L.latLng(latitude, longitude);
+
+        state.currentPosition = latLng;
+        elements.useLocationA.disabled = false;
+        elements.useLocationB.disabled = false;
+
+        if (!state.currentLocationMarker) {
+            state.currentLocationMarker = L.circleMarker(latLng, {
+                radius: 7,
+                color: "#ffffff",
+                weight: 3,
+                fillColor: "#0b84f3",
+                fillOpacity: 1
+            }).addTo(map).bindTooltip("Current location");
+        } else {
+            state.currentLocationMarker.setLatLng(latLng);
+        }
+
+        if (!state.accuracyCircle) {
+            state.accuracyCircle = L.circle(latLng, {
+                radius: accuracy,
+                color: "#0b84f3",
+                weight: 1,
+                opacity: 0.65,
+                fillColor: "#0b84f3",
+                fillOpacity: 0.10,
+                interactive: false
+            }).addTo(map);
+        } else {
+            state.accuracyCircle.setLatLng(latLng);
+            state.accuracyCircle.setRadius(accuracy);
+        }
+
+        const details = [
+            `GPS ±${Math.round(accuracy)} m`,
+            `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+        ];
+
+        if (Number.isFinite(altitude)) details.push(`alt ${Math.round(altitude)} m`);
+        if (Number.isFinite(speed)) details.push(`${(speed * 3.6).toFixed(1)} km/h`);
+        if (Number.isFinite(heading)) details.push(`heading ${Math.round(heading)}°`);
+
+        elements.gpsStatus.classList.remove("error");
+        elements.gpsStatus.textContent = details.join(" · ");
+
+        if (!state.hasCenteredOnGps) {
+            map.setView(latLng, 17);
+            state.hasCenteredOnGps = true;
+        }
+    }
+
+    function handleGpsError(error) {
+        const messages = {
+            1: "Location permission denied",
+            2: "Location unavailable",
+            3: "Location request timed out"
+        };
+
+        elements.gpsStatus.classList.add("error");
+        elements.gpsStatus.textContent = `GPS: ${messages[error.code] || error.message}`;
+    }
+
+    map.on("click", event => {
+        setPoint(state.activePoint, event.latlng);
+    });
+
+    elements.setA.addEventListener("click", () => setActivePoint("A"));
+    elements.setB.addEventListener("click", () => setActivePoint("B"));
+
+    elements.useLocationA.addEventListener("click", () => {
+        if (state.currentPosition) setPoint("A", state.currentPosition);
+    });
+
+    elements.useLocationB.addEventListener("click", () => {
+        if (state.currentPosition) setPoint("B", state.currentPosition);
+    });
+
+    elements.fitLink.addEventListener("click", fitLink);
+
+    elements.clear.addEventListener("click", () => {
+        for (const pointName of ["A", "B"]) {
+            if (state.markers[pointName]) {
+                map.removeLayer(state.markers[pointName]);
+                state.markers[pointName] = null;
+            }
+            state.points[pointName] = null;
+        }
+
+        removeLayer("linkLine");
+        removeLayer("fresnelPolygon");
+        setActivePoint("A");
+        updateLink();
+    });
+
+    elements.frequency.addEventListener("input", updateLink);
+    elements.samples.addEventListener("input", updateLink);
+
+    if ("geolocation" in navigator) {
+        navigator.geolocation.watchPosition(updateGps, handleGpsError, {
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 20000
+        });
+    } else {
+        elements.gpsStatus.classList.add("error");
+        elements.gpsStatus.textContent = "GPS: geolocation is not supported";
+    }
+</script>
+</body>
+</html>
