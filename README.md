@@ -1,6 +1,11 @@
 # PTP Fresnel Zone Planner
 
-A simple map tool for planning point-to-point wireless links.
+> [!NOTE]
+> This tool was built to show my current position relative to the Fresnel zone of a point-to-point wireless link. By
+> using it on a phone while walking along the path, I could identify which branches were inside or close to the Fresnel
+> zone and clear only the ones that were likely affecting the signal.
+
+---
 
 > [!WARNING]
 > This is a **vibe-coded project** created for personal use (including this readme). It has not been professionally
