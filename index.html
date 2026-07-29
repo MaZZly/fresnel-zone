@@ -174,14 +174,28 @@
             font-size: 0.78rem;
         }
 
+        .map-style-control,
         .frequency-control {
             margin-top: 6px;
         }
 
+        .map-style-label,
         .frequency-label {
             display: block;
             margin-bottom: 4px;
             font-size: 0.75rem;
+        }
+
+        .map-style-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 4px;
+        }
+
+        .map-style-button.selected {
+            border-color: var(--accent);
+            background: var(--accent);
+            color: white;
         }
 
         .frequency-buttons {
@@ -382,6 +396,14 @@
             <button id="clear" type="button">Clear</button>
         </div>
 
+        <div class="map-style-control">
+            <span class="map-style-label">Map style</span>
+            <div class="map-style-buttons" role="group" aria-label="Map style">
+                <button class="map-style-button selected" type="button" data-map-style="map">Map</button>
+                <button class="map-style-button" type="button" data-map-style="satellite">Satellite</button>
+            </div>
+        </div>
+
         <div class="frequency-control">
             <span class="frequency-label">Frequency</span>
             <div class="frequency-buttons" role="group" aria-label="Frequency in GHz">
@@ -421,16 +443,30 @@
     const SPEED_OF_LIGHT = 299792458;
     const EARTH_RADIUS_M = 6371008.8;
     const STORAGE_KEY = "ptp-fresnel-planner-points";
+    const MAP_STYLE_STORAGE_KEY = "ptp-fresnel-planner-map-style";
 
     const map = L.map("map", {
         zoomControl: true,
         preferCanvas: true
     }).setView([63.095, 21.616], 12);
 
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 20,
-        attribution: "&copy; OpenStreetMap contributors"
-    }).addTo(map);
+    const baseLayers = {
+        map: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 20,
+            maxNativeZoom: 19,
+            attribution: "&copy; OpenStreetMap contributors"
+        }),
+        satellite: L.tileLayer(
+            "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            {
+                maxZoom: 20,
+                maxNativeZoom: 18,
+                attribution: "Tiles &copy; Esri and imagery providers"
+            }
+        )
+    };
+
+    let activeBaseLayer = null;
 
     const elements = {
         setA: document.getElementById("set-a"),
@@ -439,6 +475,7 @@
         useLocationB: document.getElementById("use-location-b"),
         fitLink: document.getElementById("fit-link"),
         clear: document.getElementById("clear"),
+        mapStyleButtons: [...document.querySelectorAll("[data-map-style]")],
         frequencyButtons: [...document.querySelectorAll("[data-frequency]")],
         customFrequencyButton: document.getElementById("custom-frequency-button"),
         customFrequencyRow: document.getElementById("custom-frequency-row"),
@@ -466,6 +503,39 @@
         hasCenteredOnGps: false,
         frequencyGHz: 2.4
     };
+
+    function setMapStyle(style, persist = true) {
+        const normalizedStyle = style === "satellite" ? "satellite" : "map";
+
+        if (activeBaseLayer) {
+            map.removeLayer(activeBaseLayer);
+        }
+
+        activeBaseLayer = baseLayers[normalizedStyle];
+        activeBaseLayer.addTo(map);
+        activeBaseLayer.bringToBack();
+
+        for (const button of elements.mapStyleButtons) {
+            button.classList.toggle("selected", button.dataset.mapStyle === normalizedStyle);
+        }
+
+        if (persist) {
+            try {
+                localStorage.setItem(MAP_STYLE_STORAGE_KEY, normalizedStyle);
+            } catch (error) {
+                console.warn("Could not save map style", error);
+            }
+        }
+    }
+
+    function loadMapStyle() {
+        try {
+            setMapStyle(localStorage.getItem(MAP_STYLE_STORAGE_KEY) || "map", false);
+        } catch (error) {
+            console.warn("Could not restore map style", error);
+            setMapStyle("map", false);
+        }
+    }
 
     function toRadians(degrees) {
         return degrees * Math.PI / 180;
@@ -867,6 +937,12 @@
         updateLink();
     });
 
+    for (const button of elements.mapStyleButtons) {
+        button.addEventListener("click", () => {
+            setMapStyle(button.dataset.mapStyle);
+        });
+    }
+
     function selectFrequency(frequencyGHz, selectedButton = null) {
         state.frequencyGHz = frequencyGHz;
 
@@ -905,6 +981,7 @@
         }
     });
 
+    loadMapStyle();
     loadPoints();
 
     if ("geolocation" in navigator) {
